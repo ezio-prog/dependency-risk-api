@@ -14,7 +14,8 @@ from osv import query_package, query_batch
 from risk import (
     calculate_risk,
     get_verdict,
-    recommendation_for
+    recommendation_for,
+    parse_cvss_vector
 )
 
 
@@ -25,6 +26,34 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def deduplicate_vulnerabilities(
+    vulnerabilities: list[dict]
+) -> list[dict]:
+
+    unique = []
+    seen = set()
+
+    for vulnerability in vulnerabilities:
+
+        identifiers = {
+            vulnerability.get("id")
+        }
+
+        identifiers.update(
+            vulnerability.get("aliases", [])
+        )
+
+        identifiers.discard(None)
+
+        if seen.intersection(identifiers):
+            continue
+
+        seen.update(identifiers)
+        unique.append(vulnerability)
+
+    return unique
+
+
 def format_vulnerabilities(
     vulnerabilities: list[dict]
 ) -> list[dict]:
@@ -33,26 +62,43 @@ def format_vulnerabilities(
 
     for vulnerability in vulnerabilities:
 
-        aliases = vulnerability.get("aliases", [])
+        aliases = vulnerability.get(
+            "aliases",
+            []
+        )
 
         fixed_versions = []
 
-        for affected in vulnerability.get("affected", []):
+        for affected in vulnerability.get(
+            "affected",
+            []
+        ):
 
-            for range_data in affected.get("ranges", []):
+            for range_data in affected.get(
+                "ranges",
+                []
+            ):
 
-                for event in range_data.get("events", []):
+                for event in range_data.get(
+                    "events",
+                    []
+                ):
 
                     fixed = event.get("fixed")
 
                     if fixed:
-                        fixed_versions.append(fixed)
+                        fixed_versions.append(
+                            fixed
+                        )
 
         fixed_version = None
 
         if fixed_versions:
+
             fixed_version = list(
-                dict.fromkeys(fixed_versions)
+                dict.fromkeys(
+                    fixed_versions
+                )
             )[0]
 
         severity = None
@@ -63,19 +109,43 @@ def format_vulnerabilities(
             []
         ):
 
-            if severity_data.get("type", "").upper().startswith("CVSS"):
-                severity = severity_data.get("type")
+            severity_type = severity_data.get(
+                "type",
+                ""
+            )
 
-                score = severity_data.get("score")
+            if not severity_type.upper().startswith(
+                "CVSS"
+            ):
+                continue
 
-                try:
-                    numeric_score = float(score)
+            severity = severity_type
 
-                    if 0 <= numeric_score <= 10:
-                        cvss_score = numeric_score
+            score = severity_data.get(
+                "score"
+            )
 
-                except (TypeError, ValueError):
-                    pass
+            if not score:
+                continue
+
+            try:
+
+                numeric_score = float(score)
+
+                if 0 <= numeric_score <= 10:
+                    cvss_score = numeric_score
+
+            except (
+                TypeError,
+                ValueError
+            ):
+
+                parsed_score = parse_cvss_vector(
+                    str(score)
+                )
+
+                if parsed_score is not None:
+                    cvss_score = parsed_score
 
         references = []
 
@@ -90,35 +160,54 @@ def format_vulnerabilities(
                 references.append(url)
 
         formatted.append({
-            "id": vulnerability.get(
-                "id",
-                "UNKNOWN"
-            ),
 
-            "aliases": aliases,
+            "id":
+                vulnerability.get(
+                    "id",
+                    "UNKNOWN"
+                ),
 
-            "summary": vulnerability.get(
-                "summary"
-            ),
+            "aliases":
+                aliases,
 
-            "severity": severity,
+            "summary":
+                vulnerability.get(
+                    "summary"
+                ),
 
-            "cvss_score": cvss_score,
+            "severity":
+                severity,
 
-            "published": vulnerability.get(
-                "published"
-            ),
+            "cvss_score":
+                cvss_score,
 
-            "modified": vulnerability.get(
-                "modified"
-            ),
+            "published":
+                vulnerability.get(
+                    "published"
+                ),
 
-            "fixed_version": fixed_version,
+            "modified":
+                vulnerability.get(
+                    "modified"
+                ),
 
-            "references": references
+            "fixed_version":
+                fixed_version,
+
+            "references":
+                references
         })
 
     return formatted
+
+
+def prepare_vulnerabilities(
+    vulnerabilities: list[dict]
+) -> list[dict]:
+
+    return deduplicate_vulnerabilities(
+        vulnerabilities
+    )
 
 
 @router.get(
@@ -126,6 +215,7 @@ def format_vulnerabilities(
     response_model=PackageResult
 )
 async def check_package(
+
     package: str = Query(
         ...,
         min_length=1,
@@ -160,9 +250,11 @@ async def check_package(
             detail=f"OSV request failed: {exc}"
         )
 
-    vulnerabilities = data.get(
-        "vulns",
-        []
+    vulnerabilities = prepare_vulnerabilities(
+        data.get(
+            "vulns",
+            []
+        )
     )
 
     risk = calculate_risk(
@@ -208,7 +300,9 @@ async def check_package(
     )
 
 
-@router.post("/check-dependencies")
+@router.post(
+    "/check-dependencies"
+)
 async def check_dependencies(
     request: BatchRequest
 ):
@@ -243,9 +337,11 @@ async def check_dependencies(
             else {}
         )
 
-        vulnerabilities = osv_result.get(
-            "vulns",
-            []
+        vulnerabilities = prepare_vulnerabilities(
+            osv_result.get(
+                "vulns",
+                []
+            )
         )
 
         risk = calculate_risk(
@@ -258,23 +354,26 @@ async def check_dependencies(
 
         results.append({
 
-            "package": dependency.package,
+            "package":
+                dependency.package,
 
-            "ecosystem": dependency.ecosystem,
+            "ecosystem":
+                dependency.ecosystem,
 
-            "version": dependency.version,
+            "version":
+                dependency.version,
 
-            "vulnerable": bool(
-                vulnerabilities
-            ),
+            "vulnerable":
+                bool(vulnerabilities),
 
-            "vulnerability_count": len(
-                vulnerabilities
-            ),
+            "vulnerability_count":
+                len(vulnerabilities),
 
-            "risk": risk,
+            "risk":
+                risk,
 
-            "verdict": verdict,
+            "verdict":
+                verdict,
 
             "vulnerabilities":
                 format_vulnerabilities(
@@ -310,7 +409,8 @@ async def check_dependencies(
 
     return {
 
-        "checked_at": utc_now(),
+        "checked_at":
+            utc_now(),
 
         "summary": {
 
@@ -330,11 +430,14 @@ async def check_dependencies(
                 medium
         },
 
-        "results": results
+        "results":
+            results
     }
 
 
-@router.post("/analyze-project")
+@router.post(
+    "/analyze-project"
+)
 async def analyze_project(
     request: ProjectRequest
 ):
@@ -369,9 +472,11 @@ async def analyze_project(
             else {}
         )
 
-        vulnerabilities = osv_result.get(
-            "vulns",
-            []
+        vulnerabilities = prepare_vulnerabilities(
+            osv_result.get(
+                "vulns",
+                []
+            )
         )
 
         risk = calculate_risk(
@@ -418,9 +523,13 @@ async def analyze_project(
         })
 
     counts = {
+
         "critical": 0,
+
         "high": 0,
+
         "medium": 0,
+
         "low": 0
     }
 
@@ -432,20 +541,25 @@ async def analyze_project(
             counts[risk] += 1
 
     if counts["critical"] > 0:
+
         project_verdict = "BLOCK"
 
     elif counts["high"] > 0:
+
         project_verdict = "BLOCK"
 
     elif counts["medium"] > 0:
+
         project_verdict = "REVIEW"
 
     else:
+
         project_verdict = "ALLOW"
 
     return {
 
-        "project": request.project_name,
+        "project":
+            request.project_name,
 
         "manifest_type":
             request.manifest_type,
