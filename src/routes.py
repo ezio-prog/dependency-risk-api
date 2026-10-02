@@ -2,16 +2,16 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Query
 
-from .models import (
+from models import (
     BatchRequest,
     Dependency,
     PackageResult,
     ProjectRequest
 )
 
-from .osv import query_package, query_batch
+from osv import query_package, query_batch
 
-from .risk import (
+from risk import (
     calculate_risk,
     get_verdict,
     recommendation_for
