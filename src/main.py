@@ -25,7 +25,7 @@ app = FastAPI(
 # x402 PAYMENT CONFIGURATION
 # --------------------------------------------------
 
-PAY_TO = "0x74d967874bc82f62321edFca05aE1662a65F31d8"
+PAY_TO = "0x8AfE91fBc483aB8a64F51ED81E15FFe151E19Bf9"
 
 NETWORK = "eip155:84532"  # Base Sepolia testnet
 
