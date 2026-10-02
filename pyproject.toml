@@ -1,1 +1,17 @@
+[project]
+name = "dependency-risk-api"
+version = "0.1.0"
+description = "Automated dependency security intelligence API"
+requires-python = ">=3.13"
 
+dependencies = [
+    "fastapi",
+    "httpx",
+    "pydantic"
+]
+
+[dependency-groups]
+dev = [
+    "workers-py>=1.9",
+    "workers-runtime-sdk"
+]
