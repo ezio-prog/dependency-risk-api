@@ -10,7 +10,6 @@ dependencies = [
     "pydantic",
     "x402"
 ]
-]
 
 [dependency-groups]
 dev = [
